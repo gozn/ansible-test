@@ -1,0 +1,15 @@
+---
+- name: Test Ansible Connectivity
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create a test file
+      file:
+        path: /tmp/ansible_test_file
+        state: touch
+
+    - name: Install tree package
+      package:
+        name: tree
+        state: present
+
