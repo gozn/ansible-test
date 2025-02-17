@@ -1,0 +1,8 @@
+mysql_root_password: "123"
+mysql_database: "test_db"
+mysql_user: "root"
+mysql_password: "password"
+nginx_domain: "localhost"
+repo_url: "https://github.com/gozn/ansible-web.git"
+app_dir: "/var/www/html/ansible-web"
+

@@ -1,0 +1,12 @@
+---
+#- name: Test Ping and Create test.txt on Linux
+#hosts: host   # Targeting the 'linux' group from the inventory
+# become: true   # Run with elevated privileges (sudo)
+# roles:
+#   - linux      # Apply the 'linux' role#
+
+- name: Test Ping and Create test.txt on Windows
+  hosts: windows  # Targeting the 'windows' group from the inventory
+  roles:
+    - windows     # Apply the 'windows' role
+

@@ -1,0 +1,166 @@
+---
+### 1️⃣ UPDATE & INSTALL PACKAGES
+- name: Update package list
+  apt:
+    update_cache: yes
+
+- name: Install required packages
+  apt:
+    name:
+      - nginx
+      - php-fpm
+      - php-mysql
+      - php-cli
+      - php-curl
+      - php-xml
+      - php-mbstring
+      - git
+      - mysql-server
+      - python3-mysqldb
+    state: present
+
+### 2️⃣ DETECT PHP-FPM VERSION DYNAMICALLY
+- name: Get installed PHP version
+  shell: "php -r 'echo PHP_MAJOR_VERSION . \".\" . PHP_MINOR_VERSION;'"
+  register: php_version
+  changed_when: false
+
+- name: Set PHP-FPM service name dynamically
+  set_fact:
+    php_fpm_service: "php{{ php_version.stdout }}-fpm"
+
+- name: Debug PHP-FPM service name
+  debug:
+    msg: "Detected PHP-FPM Service: {{ php_fpm_service }}"
+
+### 3️⃣ START SERVICES
+- name: Ensure Nginx is started and enabled
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+
+- name: Ensure PHP-FPM is started and enabled
+  service:
+    name: "{{ php_fpm_service }}"
+    state: started
+    enabled: yes
+
+- name: Ensure MySQL is started and enabled
+  service:
+    name: mysql
+    state: started
+    enabled: yes
+
+### 4️⃣ CONFIGURE MYSQL ROOT PASSWORD
+- name: Ensure MySQL root password is set
+  mysql_user:
+    name: root
+    password: "{{ mysql_root_password }}"
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    host: localhost
+    priv: "*.*:ALL,GRANT"
+    plugin: mysql_native_password
+    state: present
+
+### 5️⃣ CREATE DATABASE & USER
+- name: Create application database
+  mysql_db:
+    name: "{{ mysql_database }}"
+    state: present
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+
+- name: Create MySQL user and grant privileges
+  mysql_user:
+    name: "{{ mysql_user }}"
+    password: "{{ mysql_password }}"
+    priv: "{{ mysql_database }}.*:ALL"
+    host: "%"
+    state: present
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+
+### 6️⃣ CLONE PHP APPLICATION FROM GITHUB
+- name: Clone the PHP application
+  git:
+    repo: "{{ repo_url }}"
+    dest: "{{ app_dir }}"
+    version: main
+    force: yes
+
+- name: Set correct permissions for web directory
+  file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+    recurse: yes
+
+### 7️⃣ IMPORT DATABASE FROM `test_db.sql`
+- name: Create MySQL credentials file
+  copy:
+    dest: /root/.my.cnf
+    content: |
+      [client]
+      user=root
+      password={{ mysql_root_password }}
+    mode: '0600'
+
+- name: Import database schema from `test_db.sql`
+  shell: "mysql {{ mysql_database }} < {{ app_dir }}/test_db.sql"
+  args:
+    executable: /bin/bash
+  register: import_result
+  changed_when: false
+  ignore_errors: yes
+
+- name: Debug database import output
+  debug:
+    msg: "Database Import Output: {{ import_result.stdout }}"
+
+### 8️⃣ DEPLOY NGINX CONFIGURATION
+- name: Deploy Nginx configuration for PHP application
+  copy:
+    dest: /etc/nginx/sites-available/ansible-web
+    content: |
+      server {
+          listen 80;
+          server_name {{ nginx_domain }};
+          root {{ app_dir }};
+          index index.php index.html index.htm;
+
+          location / {
+              try_files $uri $uri/ /index.php?$query_string;
+          }
+
+          location ~ \.php$ {
+              include snippets/fastcgi-php.conf;
+              fastcgi_pass unix:/run/php/php{{ php_version.stdout }}-fpm.sock;
+              fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+              include fastcgi_params;
+          }
+
+          location ~ /\.ht {
+              deny all;
+          }
+      }
+  notify: Reload Nginx
+
+- name: Enable Nginx site configuration
+  file:
+    src: /etc/nginx/sites-available/ansible-web
+    dest: /etc/nginx/sites-enabled/ansible-web
+    state: link
+  notify: Reload Nginx
+
+- name: Deploy secure config.php
+  template:
+    src: /opt/ansible-test/roles/linux/templates/config.php.j2
+    dest: /var/www/html/ansible-web/config.php
+    owner: www-data
+    group: www-data
+    mode: '0640'
+

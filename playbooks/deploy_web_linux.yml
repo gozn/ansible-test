@@ -1,0 +1,6 @@
+---
+- name: Deploy PHP Application with Nginx
+  hosts: host
+  become: true
+  roles:
+    - linux
